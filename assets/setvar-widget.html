@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subagent Task Widget</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 12px; }
+      .card { border: 1px solid color-mix(in oklab, CanvasText 15%, transparent); border-radius: 10px; padding: 12px; }
+      .muted { opacity: 0.8; font-size: 0.9rem; }
+      .task { font-weight: 600; margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="muted">Task submitted to subagent:</div>
+      <div id="task" class="task">(loading…)</div>
+      <div id="status" class="muted" style="margin-top: 8px;">A response will be posted shortly…</div>
+    </div>
+
+    <script>
+      (function () {
+        const $ = (sel) => document.querySelector(sel);
+
+        // Display the provided task from window.openai.toolInput when available
+        function renderToolInput() {
+          try {
+            const inp = window.openai && window.openai.toolInput || {};
+            if (inp && typeof inp.task === 'string') {
+              $('#task').textContent = inp.task;
+            } else {
+              $('#task').textContent = '(no task provided)';
+            }
+          } catch (e) {
+            $('#task').textContent = '(unable to read tool input)';
+          }
+        }
+
+        function postFollowUpMessage() {
+        const prompt = 'Response from sub-agent: task completed';
+
+        // 1. Приоритетный метод: Нативный SDK OpenAI (самый стабильный)
+        if (window.openai && typeof window.openai.sendFollowUpMessage === 'function') {
+            window.openai.sendFollowUpMessage({ prompt });
+            $('#status').textContent = 'Отправлено через sendFollowUpMessage';
+            return;
+        }
+
+        // 2. Фоллбек: MCP Apps host bridge (JSON-RPC)
+        try {
+            const rpc = {
+            jsonrpc: '2.0',
+            id: Math.random().toString(36).slice(2),
+            method: 'ui/message',
+            params: {
+                role: 'user',
+                // Попробуйте передать и текст, и структуру, если это не сработает
+                content: [{ type: 'text', text: prompt }] 
+            }
+            };
+            
+            if (window.parent) {
+            window.parent.postMessage(rpc, '*');
+            $('#status').textContent = 'Отправлено через MCP Bridge';
+            }
+        } catch (e) {
+            $('#status').textContent = 'Ошибка отправки: ' + e.message;
+        }
+        }
+        function init() {
+          renderToolInput();
+          // Inform the host our intrinsic height to avoid clipping (best-effort)
+          try {
+            if (window.openai && typeof window.openai.notifyIntrinsicHeight === 'function') {
+              window.openai.notifyIntrinsicHeight();
+            }
+          } catch {}
+
+          setTimeout(postFollowUpMessage, 20000);
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', init);
+        } else {
+          init();
+        }
+      })();
+    </script>
+  </body>
+  </html>
